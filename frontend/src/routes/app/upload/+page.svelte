@@ -121,6 +121,19 @@
 		</label>
 	</div>
 
+	<!-- Errors are persistent (don't disappear when the staged-file list clears) -->
+	{#if errorMsg}
+		<div class="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 mb-6 flex items-start gap-3">
+			<span class="text-red-400 shrink-0">⚠</span>
+			<p class="text-red-300 text-sm leading-relaxed flex-1">{errorMsg}</p>
+			<button
+				onclick={() => (errorMsg = '')}
+				class="text-red-400 hover:text-red-200 shrink-0"
+				aria-label="Dismiss"
+			>✕</button>
+		</div>
+	{/if}
+
 	<!-- Staged files -->
 	{#if files.length > 0}
 		<div class="bg-slate-800 border border-slate-700 rounded-xl mb-6">
@@ -139,10 +152,6 @@
 				{/each}
 			</ul>
 		</div>
-
-		{#if errorMsg}
-			<p class="text-red-400 text-sm mb-4">{errorMsg}</p>
-		{/if}
 
 		<button
 			onclick={uploadFiles}
