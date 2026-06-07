@@ -103,6 +103,21 @@ cd backend
 .venv/bin/pytest
 ```
 
+### Smoke-test the agent without a browser
+
+`backend/scripts/smoke_test_agent.py` joins a LiveKit room as a dummy participant, publishes a WAV file as if it were the user's mic, and prints any data messages the agent sends back. Use it to verify the agent end-to-end without opening a browser tab.
+
+```bash
+# Generate a WAV (any 16-bit PCM file works; 24kHz mono is fine)
+python -c "from openai import OpenAI; OpenAI().audio.speech.create(model='tts-1', voice='nova', input='Acme had revenue of twelve billion in 2025.', response_format='wav').stream_to_file('/tmp/claim.wav')"
+
+# With the agent worker running, in another terminal:
+cd backend
+.venv/bin/python scripts/smoke_test_agent.py my-test-room /tmp/claim.wav
+```
+
+Look for a `DATA from agent-...` line with the interjection JSON.
+
 ---
 
 ## 9. MCP configuration (for Claude Code)
