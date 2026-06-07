@@ -71,17 +71,17 @@ async def add_document_chunks(chunks: list[DocumentChunk]) -> None:
 
 async def search(query: str, top_k: int = 5) -> list[dict]:
     """Semantic search against the due-diligence index. Returns source-attributed results."""
-    results = await _client.query(
+    result = await _client.query(
         settings.moss_index_name,
         query,
         QueryOptions(top_k=top_k),
     )
     return [
         {
-            "text": r.text,
-            "document": r.metadata.get("document", ""),
-            "page": r.metadata.get("page"),
-            "score": r.score,
+            "text": d.text,
+            "document": d.metadata.get("document", ""),
+            "page": d.metadata.get("page"),
+            "score": d.score,
         }
-        for r in results
+        for d in (result.docs or [])
     ]

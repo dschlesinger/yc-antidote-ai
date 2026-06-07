@@ -56,12 +56,13 @@ async def test_add_document_chunks_calls_add_docs_with_upsert() -> None:
 
 @pytest.mark.asyncio
 async def test_search_returns_dict_results() -> None:
-    fake_result = MagicMock()
-    fake_result.text = "Revenue $6B"
-    fake_result.metadata = {"document": "acme.pdf", "page": "1"}
-    fake_result.score = 0.92
+    fake_doc = MagicMock()
+    fake_doc.text = "Revenue $6B"
+    fake_doc.metadata = {"document": "acme.pdf", "page": "1"}
+    fake_doc.score = 0.92
+    fake_search_result = MagicMock(docs=[fake_doc])
     with patch.object(moss_service, "_client") as mock_client:
-        mock_client.query = AsyncMock(return_value=[fake_result])
+        mock_client.query = AsyncMock(return_value=fake_search_result)
         results = await moss_service.search("acme revenue", top_k=3)
     assert results == [
         {"text": "Revenue $6B", "document": "acme.pdf", "page": "1", "score": 0.92}

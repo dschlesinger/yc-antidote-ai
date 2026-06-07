@@ -4,16 +4,17 @@ import asyncio
 import json
 import logging
 
+from livekit import rtc
 from livekit.agents import (
     Agent,
     AgentSession,
     JobContext,
+    RunContext,
     WorkerOptions,
     cli,
     function_tool,
     inference,
 )
-from livekit.agents.llm.chat_context import ChatMessage
 from livekit.plugins import openai, silero
 
 from app.config import settings
@@ -22,39 +23,51 @@ from app.services import moss_service
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
-    "You are Antidote AI, a passive fact-checking agent in an M&A call.\n\n"
-    "Your job:\n"
-    "1. Listen silently. Do not speak unless you detect a discrepancy or are addressed.\n"
-    "2. When a participant makes a quantitative or factual claim (revenue, margins,\n"
-    "   headcount, contracts, dates, etc.), call search_knowledge_base to verify it.\n"
-    "3. If the claim contradicts your data, interject briefly with the discrepancy\n"
-    "   and the correct figure. Example: 'The net revenue for Acme Corp was $6B,\n"
-    "   not $12B. Should I provide more detail?'\n"
-    "4. If asked for more information, continue conversationally — 3-4 sentences per turn.\n"
-    "5. When dismissed ('Ok thanks, you are no longer needed'), return to passive listening.\n"
-    "6. If you appear to no longer be addressed, ask: 'Am I still needed?'\n\n"
-    "Keep interjections concise. Always cite sources."
+    "You are Antidote AI, a silent fact-checking observer on an M&A call.\n\n"
+    "DEFAULT BEHAVIOR: stay completely silent. Do not greet, do not narrate, do not\n"
+    "ask if you are still needed, do not summarize. Listen only.\n\n"
+    "YOU MAY SPEAK ONLY in these two situations:\n"
+    "  (a) You detected a contradiction between a participant's factual claim and\n"
+    "      the due-diligence knowledge base. Always run search_knowledge_base first\n"
+    "      to confirm the discrepancy. Only interject if the evidence clearly\n"
+    "      contradicts what was said.\n"
+    "  (b) A participant directly addresses you with a question that requires a\n"
+    "      verbal answer.\n\n"
+    "HOW TO COMMUNICATE: the ONLY way to speak or send text to the user is to call\n"
+    "the send_message tool. Never produce a free-form spoken response — every\n"
+    "utterance must go through send_message.\n\n"
+    "Style:\n"
+    " - Lead with the correction or the answer.\n"
+    " - 1-3 sentences. Cite the source document.\n"
+    " - Do not add closing pleasantries or follow-up questions.\n"
 )
 
 
 class AntidoteAgent(Agent):
-    """Passive fact-checking agent for M&A conversations."""
+    """Silent fact-checking agent; communicates only via send_message."""
 
-    def __init__(self) -> None:
+    def __init__(self, room: rtc.Room) -> None:
         super().__init__(instructions=SYSTEM_PROMPT)
-        # Sources from the most recent Moss search — consumed when the next
-        # assistant message is published to the frontend.
+        self._room = room
+        # Sources from the most recent Moss search — attached to the next
+        # send_message call so the UI can show the citation.
         self.pending_sources: list[dict] = []
 
     @function_tool
     async def search_knowledge_base(self, query: str) -> str:
-        """Search the due diligence knowledge base for a claim.
+        """Search the due diligence knowledge base to verify a claim.
+
+        Call this before interjecting on any factual claim. The result tells
+        you what the documents actually say so you can decide whether the
+        participant's statement is wrong.
 
         Args:
             query: The claim or topic to verify, in natural language.
 
         Returns:
-            Source-attributed evidence from the knowledge base, or a no-results message.
+            Source-attributed evidence from the knowledge base, or a
+            no-results message. The sources are remembered and attached
+            automatically to the next send_message call.
         """
         try:
             results = await moss_service.search(query, top_k=5)
@@ -73,13 +86,40 @@ class AntidoteAgent(Agent):
             f"[{r['document']} p.{r['page']}] {r['text']}" for r in results
         )
 
+    @function_tool
+    async def send_message(self, context: RunContext, text: str) -> str:
+        """Speak to the user and post the text into the on-screen chat.
+
+        This is the ONLY way you may communicate. Use it when you have
+        confirmed a discrepancy or when answering a direct question.
+
+        Args:
+            text: 1-3 sentences. Be specific and cite the source document
+                  if you have one from a recent search_knowledge_base call.
+
+        Returns:
+            A confirmation that the message was delivered. Do not produce
+            any further text after calling this tool.
+        """
+        sources = self.pending_sources
+        self.pending_sources = []
+        payload = json.dumps({
+            "type": "interjection",
+            "text": text,
+            "sources": sources,
+        }).encode()
+        await self._room.local_participant.publish_data(payload, reliable=True)
+        # Speak it aloud as well so the message reaches participants who
+        # aren't looking at the screen.
+        await context.session.say(text, allow_interruptions=True)
+        return "Message delivered."
+
 
 async def entrypoint(ctx: JobContext) -> None:
     """LiveKit agent entrypoint: join the room, wire STT/LLM/TTS, start listening."""
     await ctx.connect()
     await moss_service.ensure_index()
 
-    agent = AntidoteAgent()
     # STT and TTS are routed through LiveKit Inference (billed via the LiveKit
     # API key) so we don't need separate Deepgram/Cartesia accounts. The LLM
     # stays direct because Minimax isn't a LiveKit Inference provider.
@@ -94,33 +134,17 @@ async def entrypoint(ctx: JobContext) -> None:
         vad=silero.VAD.load(),
     )
 
-    def _publish(payload: dict) -> None:
-        data = json.dumps(payload).encode()
-        asyncio.create_task(ctx.room.local_participant.publish_data(data, reliable=True))
-
-    @session.on("conversation_item_added")
-    def _on_item_added(event) -> None:
-        item = event.item
-        if not isinstance(item, ChatMessage) or item.role != "assistant":
-            return
-        text = "".join(c for c in item.content if isinstance(c, str)).strip()
-        if not text:
-            return
-        sources = agent.pending_sources
-        agent.pending_sources = []
-        _publish({"type": "interjection", "text": text, "sources": sources})
-
     @session.on("user_input_transcribed")
     def _on_user_transcript(event) -> None:
-        # Only publish final transcripts (skip the interim partials).
         if not getattr(event, "is_final", False):
             return
         text = (event.transcript or "").strip()
         if not text:
             return
-        _publish({"type": "user_transcript", "text": text})
+        payload = json.dumps({"type": "user_transcript", "text": text}).encode()
+        asyncio.create_task(ctx.room.local_participant.publish_data(payload, reliable=True))
 
-    await session.start(agent=agent, room=ctx.room)
+    await session.start(agent=AntidoteAgent(ctx.room), room=ctx.room)
 
 
 if __name__ == "__main__":
