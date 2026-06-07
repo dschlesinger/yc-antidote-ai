@@ -67,8 +67,13 @@ SYSTEM_PROMPT = (
     "HOW TO COMMUNICATE: the send_message tool is the ONLY way to speak or\n"
     "write to the user. Never produce a free-form spoken response.\n\n"
     "Style for send_message:\n"
-    "  - Lead with the correction or the answer.\n"
-    "  - 1-3 sentences. Cite the source document.\n"
+    "  - `summary`: ONE short sentence, ~15 words max. The bottom line — the\n"
+    "    discrepancy or the answer. This is what is spoken aloud and shown\n"
+    "    in the popup. Example: 'Acme's 2025 revenue is $6B, not $5M.'\n"
+    "  - `details`: 1-3 sentences with the cited source for the chat log.\n"
+    "    Example: 'The due diligence shows Acme Corp revenue of $6B in 2025\n"
+    "    (test-acme.pdf p.1), not the $5M just stated.' If you have nothing\n"
+    "    to add beyond the summary, leave details empty.\n"
     "  - No closing pleasantries, no follow-up questions, no offers to\n"
     "    elaborate.\n"
 )
@@ -127,24 +132,35 @@ class AntidoteAgent(Agent):
         )
 
     @function_tool
-    async def send_message(self, context: RunContext, text: str) -> str:
-        """Speak to the user and post the text into the on-screen chat.
+    async def send_message(
+        self,
+        context: RunContext,
+        summary: str,
+        details: str = "",
+    ) -> str:
+        """Speak to the user (TTS + popup) and post a chat message.
 
-        Before calling this, verify ONE of the following is true:
+        Before calling this, verify ONE of the following:
           1. (unsolicited) Your most recent search_knowledge_base call returned
              a source that explicitly names the SAME entity as the claim AND
              directly contradicts it. If the source is about a different
              company or topic — do NOT call this tool.
-          2. (direct address) A participant just addressed you. Then text
-             must be either the answer + cited source, or the literal sentence
-             'I don't have information on that in the due diligence documents.'
+          2. (direct address) A participant just addressed you. Then `summary`
+             must be either the cited answer, or 'I don't have information on
+             that in the due diligence documents.'
 
-        NEVER use general/world knowledge in `text`. Every fact must come from
-        a retrieved source. If you do not have a retrieved source supporting
-        your statement, do not call this tool.
+        NEVER use general/world knowledge here. Every fact must come from a
+        retrieved source. If you do not have a source, do not call this tool.
 
         Args:
-            text: 1-3 sentences. Cite the source document when applicable.
+            summary: ONE short sentence (≈15 words). This is what gets spoken
+                     aloud and shown in the on-screen popup. State the bottom
+                     line — the discrepancy or the direct answer — and nothing
+                     else. No source name needed here.
+            details: Optional 1-3 sentence explanation shown only in the chat
+                     log alongside the source cards. Include the contradicting
+                     number/fact and reference the source document. If empty,
+                     the chat just shows the summary.
 
         Returns:
             A confirmation that the message was delivered. Produce no further
@@ -154,13 +170,14 @@ class AntidoteAgent(Agent):
         self.pending_sources = []
         payload = json.dumps({
             "type": "interjection",
-            "text": text,
+            "summary": summary,
+            "details": details or summary,
             "sources": sources,
         }).encode()
         await self._room.local_participant.publish_data(payload, reliable=True)
-        # Speak it aloud as well so the message reaches participants who
-        # aren't looking at the screen.
-        await context.session.say(text, allow_interruptions=True)
+        # Speak the SHORT summary only — never read the details or the source
+        # text aloud. The user sees those on screen.
+        await context.session.say(summary, allow_interruptions=True)
         return "Message delivered."
 
 

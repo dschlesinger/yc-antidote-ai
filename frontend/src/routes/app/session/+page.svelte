@@ -20,7 +20,13 @@
 	}
 
 	type DataPayload =
-		| { type: 'interjection'; text: string; sources?: Message['sources'] }
+		| {
+				type: 'interjection';
+				summary?: string;
+				details?: string;
+				text?: string; // legacy field, kept for backwards compat
+				sources?: Message['sources'];
+		  }
 		| { type: 'user_transcript'; text: string; speaker?: string | null };
 
 	interface ActiveInterjection {
@@ -131,12 +137,14 @@
 
 	function handleData(payload: Uint8Array, _participant?: RemoteParticipant) {
 		try {
-			const text = new TextDecoder().decode(payload);
-			const data = JSON.parse(text) as DataPayload;
+			const raw = new TextDecoder().decode(payload);
+			const data = JSON.parse(raw) as DataPayload;
 			if (data.type === 'interjection') {
-				addMessage({ role: 'agent', content: data.text, sources: data.sources });
+				const summary = data.summary ?? data.text ?? '';
+				const details = data.details ?? data.text ?? summary;
+				addMessage({ role: 'agent', content: details, sources: data.sources });
 				playChime();
-				activeInterjection = { id: crypto.randomUUID(), text: data.text };
+				activeInterjection = { id: crypto.randomUUID(), text: summary };
 			} else if (data.type === 'user_transcript') {
 				addMessage({ role: 'user', content: data.text, speaker: data.speaker });
 			}
