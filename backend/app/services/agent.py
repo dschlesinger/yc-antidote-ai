@@ -173,7 +173,10 @@ async def entrypoint(ctx: JobContext) -> None:
     # API key) so we don't need separate Deepgram/Cartesia accounts. The LLM
     # stays direct because Minimax isn't a LiveKit Inference provider.
     session = AgentSession(
-        stt=inference.STT(model="deepgram/nova-3"),
+        stt=inference.STT(
+            model="deepgram/nova-3",
+            extra_kwargs={"diarize": True},
+        ),
         llm=openai.LLM(
             model=settings.minimax_model,
             api_key=settings.minimax_api_key,
@@ -183,6 +186,21 @@ async def entrypoint(ctx: JobContext) -> None:
         vad=silero.VAD.load(),
     )
 
+    # Map raw Deepgram speaker_id ("0", "1", ...) to a friendly "Person N"
+    # label assigned in order of first appearance, stable for the session.
+    speaker_labels: dict[str, str] = {}
+
+    def label_for_speaker(speaker_id: str | None) -> str | None:
+        if speaker_id is None:
+            return None
+        key = str(speaker_id)
+        existing = speaker_labels.get(key)
+        if existing:
+            return existing
+        label = f"Person {len(speaker_labels) + 1}"
+        speaker_labels[key] = label
+        return label
+
     @session.on("user_input_transcribed")
     def _on_user_transcript(event) -> None:
         if not getattr(event, "is_final", False):
@@ -190,8 +208,22 @@ async def entrypoint(ctx: JobContext) -> None:
         text = (event.transcript or "").strip()
         if not text:
             return
-        payload = json.dumps({"type": "user_transcript", "text": text}).encode()
+        speaker = label_for_speaker(getattr(event, "speaker_id", None))
+        payload = json.dumps(
+            {"type": "user_transcript", "text": text, "speaker": speaker}
+        ).encode()
         asyncio.create_task(ctx.room.local_participant.publish_data(payload, reliable=True))
+
+    @ctx.room.on("data_received")
+    def _on_client_data(packet: rtc.DataPacket) -> None:
+        """Listen for client-driven control messages (e.g. dismissing an interjection)."""
+        try:
+            msg = json.loads(bytes(packet.data).decode())
+        except Exception:
+            return
+        if msg.get("type") == "stop_speech":
+            # User dismissed the popup — silence the current TTS playout.
+            asyncio.create_task(session.interrupt())
 
     await session.start(agent=AntidoteAgent(ctx.room), room=ctx.room)
 

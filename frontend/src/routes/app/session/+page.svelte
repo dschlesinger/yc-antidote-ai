@@ -14,13 +14,19 @@
 		id: string;
 		role: 'agent' | 'system' | 'user';
 		content: string;
+		speaker?: string | null;
 		sources?: { text: string; document: string; page?: number }[];
 		timestamp: Date;
 	}
 
 	type DataPayload =
 		| { type: 'interjection'; text: string; sources?: Message['sources'] }
-		| { type: 'user_transcript'; text: string };
+		| { type: 'user_transcript'; text: string; speaker?: string | null };
+
+	interface ActiveInterjection {
+		id: string;
+		text: string;
+	}
 
 	let sessionActive = $state(false);
 	let muted = $state(false);
@@ -29,6 +35,7 @@
 	let errorMsg = $state('');
 	let audioLevel = $state(0); // 0..1, RMS amplified
 	let micActive = $state(false);
+	let activeInterjection = $state<ActiveInterjection | null>(null);
 	let room: Room | null = null;
 	let audioCtx: AudioContext | null = null;
 	let levelRaf = 0;
@@ -84,14 +91,54 @@
 		track?.on(TrackEvent.Muted, () => (audioLevel = 0));
 	}
 
+	function playChime() {
+		try {
+			const ctx = new AudioContext();
+			const tone = (freq: number, start: number, duration: number) => {
+				const o = ctx.createOscillator();
+				const g = ctx.createGain();
+				o.type = 'sine';
+				o.frequency.value = freq;
+				o.connect(g);
+				g.connect(ctx.destination);
+				const t0 = ctx.currentTime + start;
+				g.gain.setValueAtTime(0.0001, t0);
+				g.gain.exponentialRampToValueAtTime(0.18, t0 + 0.02);
+				g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+				o.start(t0);
+				o.stop(t0 + duration + 0.02);
+			};
+			tone(880, 0, 0.18);
+			tone(1320, 0.12, 0.26);
+			// Let GC close the context after the longest tone finishes.
+			setTimeout(() => ctx.close().catch(() => {}), 600);
+		} catch {
+			// AudioContext unavailable (e.g. test runner) — ignore.
+		}
+	}
+
+	async function dismissInterjection() {
+		activeInterjection = null;
+		// Ask the agent to stop the in-flight TTS playout.
+		if (!room) return;
+		try {
+			const data = new TextEncoder().encode(JSON.stringify({ type: 'stop_speech' }));
+			await room.localParticipant.publishData(data, { reliable: true });
+		} catch {
+			// Best-effort; user already dismissed visually.
+		}
+	}
+
 	function handleData(payload: Uint8Array, _participant?: RemoteParticipant) {
 		try {
 			const text = new TextDecoder().decode(payload);
 			const data = JSON.parse(text) as DataPayload;
 			if (data.type === 'interjection') {
 				addMessage({ role: 'agent', content: data.text, sources: data.sources });
+				playChime();
+				activeInterjection = { id: crypto.randomUUID(), text: data.text };
 			} else if (data.type === 'user_transcript') {
-				addMessage({ role: 'user', content: data.text });
+				addMessage({ role: 'user', content: data.text, speaker: data.speaker });
 			}
 		} catch (e) {
 			console.warn('Failed to parse data message', e);
@@ -156,6 +203,7 @@
 
 	async function stopSession() {
 		stopLevelMeter();
+		activeInterjection = null;
 		if (room) await room.disconnect();
 		room = null;
 		sessionActive = false;
@@ -184,7 +232,28 @@
 	});
 </script>
 
-<div class="flex flex-col flex-1 h-full">
+<div class="flex flex-col flex-1 h-full relative">
+	<!-- Interjection popup (click to dismiss and stop TTS) -->
+	{#if activeInterjection}
+		<button
+			type="button"
+			onclick={dismissInterjection}
+			class="absolute top-4 left-1/2 -translate-x-1/2 z-20 max-w-xl w-[calc(100%-2rem)] text-left bg-emerald-500/15 border border-emerald-500/40 backdrop-blur-md rounded-2xl px-5 py-4 shadow-2xl shadow-emerald-500/20 hover:bg-emerald-500/20 transition-colors animate-[fadeIn_120ms_ease-out]"
+			aria-label="Dismiss interjection"
+		>
+			<div class="flex items-start gap-3">
+				<div class="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-slate-900 font-bold text-sm shrink-0 mt-0.5">A</div>
+				<div class="flex-1 min-w-0">
+					<div class="text-[11px] uppercase tracking-wider font-semibold text-emerald-400 mb-1">
+						Antidote AI · fact check
+					</div>
+					<p class="text-sm text-white leading-relaxed">{activeInterjection.text}</p>
+					<p class="text-[10px] text-emerald-400/70 mt-2">Tap anywhere to dismiss</p>
+				</div>
+			</div>
+		</button>
+	{/if}
+
 	<!-- Messages area -->
 	<div class="flex-1 overflow-y-auto px-4 py-6 max-w-3xl w-full mx-auto">
 		{#if !sessionActive}
@@ -202,18 +271,22 @@
 				{#each messages as msg}
 					{@const isAgent = msg.role === 'agent'}
 					{@const isUser = msg.role === 'user'}
+					{@const speakerLabel = isUser ? (msg.speaker ?? 'You') : ''}
+					{@const speakerInitials = isUser
+						? (msg.speaker ? msg.speaker.replace('Person ', 'P') : 'You')
+						: ''}
 					<div class="flex gap-3 {isAgent ? '' : isUser ? '' : 'opacity-60'}">
 						{#if isAgent}
 							<div class="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-slate-900 font-bold text-sm shrink-0 mt-0.5">A</div>
 						{:else if isUser}
-							<div class="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center text-slate-200 font-bold text-sm shrink-0 mt-0.5">You</div>
+							<div class="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center text-slate-200 font-bold text-xs shrink-0 mt-0.5">{speakerInitials}</div>
 						{:else}
 							<div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-slate-400 text-sm shrink-0 mt-0.5">ℹ</div>
 						{/if}
 						<div class="flex-1">
 							<div class="flex items-center gap-2 mb-1">
 								<span class="text-xs font-medium {isAgent ? 'text-emerald-400' : isUser ? 'text-slate-300' : 'text-slate-500'}">
-									{isAgent ? 'Antidote AI' : isUser ? 'You' : 'System'}
+									{isAgent ? 'Antidote AI' : isUser ? speakerLabel : 'System'}
 								</span>
 								<span class="text-xs text-slate-600">{formatTime(msg.timestamp)}</span>
 							</div>
