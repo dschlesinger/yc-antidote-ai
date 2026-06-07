@@ -1,17 +1,22 @@
 <script lang="ts">
 	import { supabase } from '$lib/supabase/client';
 
+	interface UploadedDoc {
+		name: string;
+		jobId: string;
+		status: 'processing' | 'ready' | 'error';
+	}
+
 	let files = $state<File[]>([]);
 	let uploading = $state(false);
-	let uploadedDocs = $state<{ name: string; id: string; status: 'processing' | 'ready' | 'error' }[]>([]);
+	let uploadedDocs = $state<UploadedDoc[]>([]);
 	let dragOver = $state(false);
 	let errorMsg = $state('');
 
 	function handleDrop(e: DragEvent) {
 		e.preventDefault();
 		dragOver = false;
-		const dropped = Array.from(e.dataTransfer?.files ?? []);
-		files = [...files, ...dropped];
+		files = [...files, ...Array.from(e.dataTransfer?.files ?? [])];
 	}
 
 	function handleFileInput(e: Event) {
@@ -23,30 +28,51 @@
 		files = files.filter((_, i) => i !== index);
 	}
 
+	async function authHeader(): Promise<Record<string, string> | null> {
+		const { data } = await supabase.auth.getSession();
+		if (!data.session) return null;
+		return { Authorization: `Bearer ${data.session.access_token}` };
+	}
+
+	function pollStatus(jobId: string) {
+		const interval = setInterval(async () => {
+			const headers = await authHeader();
+			if (!headers) return clearInterval(interval);
+			try {
+				const res = await fetch(`/api/documents/${jobId}`, { headers });
+				if (!res.ok) return;
+				const data = await res.json();
+				uploadedDocs = uploadedDocs.map((d) => (d.jobId === jobId ? { ...d, status: data.status } : d));
+				if (data.status === 'ready' || data.status === 'error') clearInterval(interval);
+			} catch {
+				// transient errors are fine; the next tick retries
+			}
+		}, 4000);
+	}
+
 	async function uploadFiles() {
 		if (!files.length) return;
 		uploading = true;
 		errorMsg = '';
 
-		const { data: session } = await supabase.auth.getSession();
-		if (!session.session) return;
+		const headers = await authHeader();
+		if (!headers) {
+			uploading = false;
+			return;
+		}
 
 		for (const file of files) {
 			try {
 				const formData = new FormData();
 				formData.append('file', file);
-
-				const res = await fetch('/api/documents', {
-					method: 'POST',
-					body: formData,
-					headers: {
-						Authorization: `Bearer ${session.session.access_token}`
-					}
-				});
-
+				const res = await fetch('/api/documents/', { method: 'POST', body: formData, headers });
 				if (!res.ok) throw new Error(await res.text());
 				const doc = await res.json();
-				uploadedDocs = [...uploadedDocs, { name: file.name, id: doc.id, status: 'processing' }];
+				uploadedDocs = [
+					...uploadedDocs,
+					{ name: file.name, jobId: doc.unsiloed_job_id, status: 'processing' }
+				];
+				pollStatus(doc.unsiloed_job_id);
 			} catch (e) {
 				errorMsg = e instanceof Error ? e.message : 'Upload failed';
 			}

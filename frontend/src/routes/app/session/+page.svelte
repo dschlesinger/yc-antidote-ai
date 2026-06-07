@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+	import { Room, RoomEvent, type RemoteParticipant } from 'livekit-client';
 	import { supabase } from '$lib/supabase/client';
 
 	interface Message {
@@ -9,16 +11,47 @@
 		timestamp: Date;
 	}
 
+	interface InterjectionPayload {
+		type: 'interjection';
+		text: string;
+		sources?: { text: string; document: string; page?: number }[];
+	}
+
 	let sessionActive = $state(false);
 	let muted = $state(false);
 	let messages = $state<Message[]>([]);
-	let token = $state<string | null>(null);
 	let loading = $state(false);
+	let errorMsg = $state('');
+	let room: Room | null = null;
+
+	function addMessage(msg: Omit<Message, 'id' | 'timestamp'>) {
+		messages = [
+			...messages,
+			{ id: crypto.randomUUID(), timestamp: new Date(), ...msg }
+		];
+	}
+
+	function handleData(payload: Uint8Array, _participant?: RemoteParticipant) {
+		try {
+			const text = new TextDecoder().decode(payload);
+			const data = JSON.parse(text) as InterjectionPayload;
+			if (data.type === 'interjection') {
+				addMessage({ role: 'agent', content: data.text, sources: data.sources });
+			}
+		} catch (e) {
+			console.warn('Failed to parse data message', e);
+		}
+	}
 
 	async function startSession() {
 		loading = true;
+		errorMsg = '';
+
 		const { data } = await supabase.auth.getSession();
-		if (!data.session) return;
+		if (!data.session) {
+			loading = false;
+			return;
+		}
 
 		try {
 			const res = await fetch('/api/session/token', {
@@ -28,35 +61,58 @@
 					'Content-Type': 'application/json'
 				}
 			});
+			if (!res.ok) throw new Error(`Token request failed: ${res.status}`);
 			const body = await res.json();
-			token = body.token;
+
+			room = new Room();
+			room.on(RoomEvent.DataReceived, handleData);
+			room.on(RoomEvent.Disconnected, () => {
+				sessionActive = false;
+				room = null;
+			});
+
+			await room.connect(body.livekit_url, body.token);
 			sessionActive = true;
-			messages = [{
-				id: crypto.randomUUID(),
+			muted = false;
+			addMessage({
 				role: 'system',
-				content: 'Antidote AI is now listening. It will interject if a claim contradicts your due diligence data.',
-				timestamp: new Date()
-			}];
-		} catch {
-			// handled via UI state
+				content: 'Antidote AI is now listening. It will interject if a claim contradicts your due diligence data.'
+			});
+
+			// Don't block session start on mic permission — handle async.
+			room.localParticipant.setMicrophoneEnabled(true).catch((e) => {
+				errorMsg = `Microphone unavailable: ${e instanceof Error ? e.message : 'permission denied'}`;
+				muted = true;
+			});
+		} catch (e) {
+			errorMsg = e instanceof Error ? e.message : 'Failed to start session';
+			if (room) await room.disconnect();
+			room = null;
 		} finally {
 			loading = false;
 		}
 	}
 
-	function stopSession() {
+	async function stopSession() {
+		if (room) await room.disconnect();
+		room = null;
 		sessionActive = false;
-		token = null;
 		messages = [];
 	}
 
-	function toggleMute() {
+	async function toggleMute() {
+		if (!room) return;
 		muted = !muted;
+		await room.localParticipant.setMicrophoneEnabled(!muted);
 	}
 
 	function formatTime(d: Date) {
 		return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 	}
+
+	onDestroy(() => {
+		room?.disconnect();
+	});
 </script>
 
 <div class="flex flex-col flex-1 h-full">
@@ -110,6 +166,9 @@
 
 	<!-- Footer controls -->
 	<div class="border-t border-slate-800 bg-slate-900/80 backdrop-blur px-4 py-4">
+		{#if errorMsg}
+			<div class="max-w-3xl mx-auto mb-3 text-sm text-red-400">{errorMsg}</div>
+		{/if}
 		<div class="max-w-3xl mx-auto flex items-center justify-between gap-4">
 			{#if sessionActive}
 				<div class="flex items-center gap-2">

@@ -100,4 +100,13 @@ Backend in /backend
 * Unsiloed
     * General [docuementation](https://www.unsiloed.ai/docs)
     * API Reference [documentation](https://docs.unsiloed.ai/api-reference/parser/parse-document)
+
+* Deepgram (STT for the agent)
+    * [Documentation](https://developers.deepgram.com/docs)
+    * LiveKit plugin: `livekit-plugins-deepgram`. Default model: `nova-3`.
+
+* Cartesia (TTS for the agent)
+    * [Documentation](https://docs.cartesia.ai)
+    * LiveKit plugin: `livekit-plugins-cartesia`.
+
 * [DigitalOcean CLI (`doctl`) docs](https://docs.digitalocean.com/reference/doctl/) and [repo](https://github.com/digitalocean/doctl)

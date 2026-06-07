@@ -9,10 +9,12 @@
 | Service | Purpose | Docs |
 |---|---|---|
 | LiveKit Cloud | Audio streaming + agent orchestration | https://cloud.livekit.io |
-| Minimax | LLM (OpenAI-compatible) | https://api.minimax.chat |
-| Supabase | Auth + file storage | https://supabase.com |
+| Minimax | LLM (OpenAI-compatible) — `MINIMAX_MODEL` defaults to `M3.0` | https://api.minimax.chat |
+| Supabase | Auth | https://supabase.com |
 | Moss | Semantic search / RAG | https://moss.dev |
 | Unsiloed | Document parsing | https://unsiloed.ai |
+| Deepgram | Speech-to-text for the agent | https://deepgram.com |
+| Cartesia | Text-to-speech for the agent | https://cartesia.ai |
 
 ---
 
@@ -82,17 +84,28 @@ uvicorn app.main:app --reload --port 8000
 
 ## 7. Backend (LiveKit agent worker)
 
-Run in a separate terminal (same virtualenv):
+The agent is a separate long-running worker that registers with LiveKit Cloud and accepts job dispatches whenever a session room is created. Run it in its own terminal:
 
 ```bash
 cd backend
 source .venv/bin/activate
-python -m app.services.agent
+python -m app.services.agent dev    # dev mode: hot-reload + verbose logs
+# or: python -m app.services.agent start  # production
+```
+
+Confirm it logs `registered worker` with your LiveKit project URL.
+
+## 8. Run the tests
+
+```bash
+cd backend
+.venv/bin/ruff check .
+.venv/bin/pytest
 ```
 
 ---
 
-## 8. MCP configuration (for Claude Code)
+## 9. MCP configuration (for Claude Code)
 
 The `.mcp.json` at the repo root configures MCP servers for Supabase, LiveKit docs, and Moss. Update the placeholder values:
 
@@ -110,6 +123,6 @@ The `.mcp.json` at the repo root configures MCP servers for Supabase, LiveKit do
 ## Linting
 
 ```bash
-cd backend && ruff check .
+cd backend && .venv/bin/ruff check .
 cd frontend && npm run check
 ```
