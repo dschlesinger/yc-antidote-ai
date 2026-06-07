@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--access-token",
+        "your-personal-access-token"
+      ]
+    },
+    "livekit-docs": {
+      "type": "http",
+      "url": "https://docs.livekit.io/mcp"
+    },
+    "moss": {
+      "command": "npx",
+      "args": ["-y", "@moss-tools/mcp-server"],
+      "env": {
+        "MOSS_PROJECT_ID": "your-project-id",
+        "MOSS_PROJECT_KEY": "your-project-key"
+      }
+    }
+  }
+}
