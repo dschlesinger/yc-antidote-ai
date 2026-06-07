@@ -28,9 +28,5 @@ class Settings(BaseSettings):
     unsiloed_api_key: str
     unsiloed_api_url: str = "https://prod.visionapi.unsiloed.ai"
 
-    # STT / TTS
-    deepgram_api_key: str = ""
-    cartesia_api_key: str = ""
-
 
 settings = Settings()

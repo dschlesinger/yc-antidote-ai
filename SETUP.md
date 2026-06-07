@@ -8,13 +8,13 @@
 ## External services (all require accounts)
 | Service | Purpose | Docs |
 |---|---|---|
-| LiveKit Cloud | Audio streaming + agent orchestration | https://cloud.livekit.io |
+| LiveKit Cloud | Audio streaming, agent orchestration, **and STT + TTS via Inference** | https://cloud.livekit.io |
 | Minimax | LLM (OpenAI-compatible) — `MINIMAX_MODEL` defaults to `M3.0` | https://api.minimax.chat |
 | Supabase | Auth | https://supabase.com |
 | Moss | Semantic search / RAG | https://moss.dev |
 | Unsiloed | Document parsing | https://unsiloed.ai |
-| Deepgram | Speech-to-text for the agent | https://deepgram.com |
-| Cartesia | Text-to-speech for the agent | https://cartesia.ai |
+
+> STT (Deepgram nova-3) and TTS (Cartesia sonic-3) run via **LiveKit Inference**, billed through your LiveKit API key — no separate Deepgram or Cartesia accounts needed.
 
 ---
 

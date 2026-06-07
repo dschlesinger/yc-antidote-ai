@@ -4,9 +4,17 @@ import asyncio
 import json
 import logging
 
-from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli, function_tool
+from livekit.agents import (
+    Agent,
+    AgentSession,
+    JobContext,
+    WorkerOptions,
+    cli,
+    function_tool,
+    inference,
+)
 from livekit.agents.llm.chat_context import ChatMessage
-from livekit.plugins import cartesia, deepgram, openai, silero
+from livekit.plugins import openai, silero
 
 from app.config import settings
 from app.services import moss_service
@@ -72,14 +80,17 @@ async def entrypoint(ctx: JobContext) -> None:
     await moss_service.ensure_index()
 
     agent = AntidoteAgent()
+    # STT and TTS are routed through LiveKit Inference (billed via the LiveKit
+    # API key) so we don't need separate Deepgram/Cartesia accounts. The LLM
+    # stays direct because Minimax isn't a LiveKit Inference provider.
     session = AgentSession(
-        stt=deepgram.STT(model="nova-3", api_key=settings.deepgram_api_key),
+        stt=inference.STT(model="deepgram/nova-3"),
         llm=openai.LLM(
             model=settings.minimax_model,
             api_key=settings.minimax_api_key,
             base_url=settings.minimax_base_url,
         ),
-        tts=cartesia.TTS(api_key=settings.cartesia_api_key),
+        tts=inference.TTS(model="cartesia/sonic-3"),
         vad=silero.VAD.load(),
     )
 

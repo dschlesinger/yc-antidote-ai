@@ -101,12 +101,8 @@ Backend in /backend
     * General [docuementation](https://www.unsiloed.ai/docs)
     * API Reference [documentation](https://docs.unsiloed.ai/api-reference/parser/parse-document)
 
-* Deepgram (STT for the agent)
-    * [Documentation](https://developers.deepgram.com/docs)
-    * LiveKit plugin: `livekit-plugins-deepgram`. Default model: `nova-3`.
-
-* Cartesia (TTS for the agent)
-    * [Documentation](https://docs.cartesia.ai)
-    * LiveKit plugin: `livekit-plugins-cartesia`.
+* STT and TTS via **LiveKit Inference**
+    * The agent uses `inference.STT(model="deepgram/nova-3")` and `inference.TTS(model="cartesia/sonic-3")` — both proxied through the LiveKit API key, so no separate Deepgram or Cartesia accounts are required.
+    * Docs: https://docs.livekit.io/agents/integrations/stt/ and https://docs.livekit.io/agents/integrations/tts/
 
 * [DigitalOcean CLI (`doctl`) docs](https://docs.digitalocean.com/reference/doctl/) and [repo](https://github.com/digitalocean/doctl)
