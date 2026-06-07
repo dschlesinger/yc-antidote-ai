@@ -176,8 +176,11 @@ class AntidoteAgent(Agent):
         }).encode()
         await self._room.local_participant.publish_data(payload, reliable=True)
         # Speak the SHORT summary only — never read the details or the source
-        # text aloud. The user sees those on screen.
-        await context.session.say(summary, allow_interruptions=True)
+        # text aloud. Interruptions are disabled because the summary is brief
+        # and the user may still be talking when the agent decides to chime in;
+        # the popup-dismiss path uses session.interrupt(force=True) so the user
+        # remains in control.
+        await context.session.say(summary, allow_interruptions=False)
         return "Message delivered."
 
 
@@ -240,7 +243,8 @@ async def entrypoint(ctx: JobContext) -> None:
             return
         if msg.get("type") == "stop_speech":
             # User dismissed the popup — silence the current TTS playout.
-            asyncio.create_task(session.interrupt())
+            # force=True overrides the say(allow_interruptions=False).
+            asyncio.create_task(session.interrupt(force=True))
 
     await session.start(agent=AntidoteAgent(ctx.room), room=ctx.room)
 
