@@ -22,6 +22,11 @@ We are building Antidote AI, a realtime agent that sits in on merger and aquisit
     * The agent will live on the backend (using python and **Fastapi**), the frontend and zoom bot should stream audio to the backend. The backend should use **livekit** to process the audio stream handle the agent response **Minimax** models should be used with the minimax api, use M3.0 (Specific model used should be configurable in env). All documents uploaded should be stored in supabase, use **Unsiloed** to extract information and **Moss** to retrieve information in realtime for the agent. 
 
 
+## Layout
+
+Frontend in /frontend
+Backend in /backend
+
 ## Documentation
 
 * LiveKit  
