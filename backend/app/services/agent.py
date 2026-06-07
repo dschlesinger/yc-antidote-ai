@@ -94,6 +94,10 @@ async def entrypoint(ctx: JobContext) -> None:
         vad=silero.VAD.load(),
     )
 
+    def _publish(payload: dict) -> None:
+        data = json.dumps(payload).encode()
+        asyncio.create_task(ctx.room.local_participant.publish_data(data, reliable=True))
+
     @session.on("conversation_item_added")
     def _on_item_added(event) -> None:
         item = event.item
@@ -104,8 +108,17 @@ async def entrypoint(ctx: JobContext) -> None:
             return
         sources = agent.pending_sources
         agent.pending_sources = []
-        payload = json.dumps({"type": "interjection", "text": text, "sources": sources}).encode()
-        asyncio.create_task(ctx.room.local_participant.publish_data(payload, reliable=True))
+        _publish({"type": "interjection", "text": text, "sources": sources})
+
+    @session.on("user_input_transcribed")
+    def _on_user_transcript(event) -> None:
+        # Only publish final transcripts (skip the interim partials).
+        if not getattr(event, "is_final", False):
+            return
+        text = (event.transcript or "").strip()
+        if not text:
+            return
+        _publish({"type": "user_transcript", "text": text})
 
     await session.start(agent=agent, room=ctx.room)
 
