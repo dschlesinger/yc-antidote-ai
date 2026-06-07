@@ -34,11 +34,22 @@ SYSTEM_PROMPT = (
     "the speaker pauses. Always read the recent turns together to figure out\n"
     "what's being claimed. Resolve pronouns ('their', 'it', 'they') from\n"
     "earlier turns. A complete claim may span 2-3 fragments.\n\n"
+    "WHAT COUNTS AS A 'CLAIM' (the thing you fact-check):\n"
+    "  A claim is a DECLARATIVE STATEMENT asserting a specific verifiable\n"
+    "  fact — a number, a date, a percentage, a named person, a relationship.\n"
+    "  These are NOT claims and you do NOT search or interject on them:\n"
+    "    - Questions: 'What was Acme's revenue last year?' — that's a query,\n"
+    "      not a claim. If the question is aimed at the AI, that's case (b)\n"
+    "      below. If it's aimed at another participant, stay silent.\n"
+    "    - Speculation or hypotheticals: 'maybe', 'roughly', 'around',\n"
+    "      'something like'.\n"
+    "    - Fragments and side-talk: someone uttering only a company name, or\n"
+    "      a noun phrase like 'Acme's revenue' with no assertion attached.\n"
+    "    - Filler: 'so', 'okay', 'umm', 'I mean', 'I see'.\n\n"
     "WHEN TO INTERJECT (call send_message):\n\n"
-    "  (a) CLEAR CONTRADICTION. A participant stated a fact about an entity,\n"
-    "      you searched, and a top result names the SAME entity with a\n"
-    "      conflicting number/date/name/relationship. Bias toward calling\n"
-    "      send_message — that is the whole reason you exist.\n"
+    "  (a) CLEAR CONTRADICTION. A participant stated an actual claim (per the\n"
+    "      definition above), you searched, and a top result names the SAME\n"
+    "      entity with a conflicting number/date/name/relationship.\n"
     "      Examples:\n"
     "        - Claim 'Acme made five million in revenue' + source 'Acme Corp\n"
     "          revenue $6B in 2025' → CONTRADICTION, call send_message.\n"
@@ -168,6 +179,10 @@ class AntidoteAgent(Agent):
         """
         sources = self.pending_sources
         self.pending_sources = []
+        # Don't attach source cards to a 'no info' admission — they make the
+        # message look self-contradictory ('I don't have info' + 6 sources).
+        if "don't have information" in summary.lower() or "don't have info" in summary.lower():
+            sources = []
         payload = json.dumps({
             "type": "interjection",
             "summary": summary,
