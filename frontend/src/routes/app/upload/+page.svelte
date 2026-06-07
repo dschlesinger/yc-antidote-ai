@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { supabase } from '$lib/supabase/client';
 
 	interface UploadedDoc {
@@ -7,11 +8,38 @@
 		status: 'processing' | 'ready' | 'error';
 	}
 
+	const STORAGE_KEY = 'antidote.uploadedDocs';
+
+	function loadDocsFromStorage(): UploadedDoc[] {
+		if (typeof localStorage === 'undefined') return [];
+		try {
+			const raw = localStorage.getItem(STORAGE_KEY);
+			return raw ? (JSON.parse(raw) as UploadedDoc[]) : [];
+		} catch {
+			return [];
+		}
+	}
+
 	let files = $state<File[]>([]);
 	let uploading = $state(false);
-	let uploadedDocs = $state<UploadedDoc[]>([]);
+	let uploadedDocs = $state<UploadedDoc[]>(loadDocsFromStorage());
 	let dragOver = $state(false);
 	let errorMsg = $state('');
+
+	$effect(() => {
+		try {
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(uploadedDocs));
+		} catch {
+			// localStorage may be unavailable (private mode); ignore.
+		}
+	});
+
+	onMount(() => {
+		// Resume polling for anything that was still in flight when the page was closed.
+		uploadedDocs
+			.filter((d) => d.status === 'processing')
+			.forEach((d) => pollStatus(d.jobId));
+	});
 
 	function handleDrop(e: DragEvent) {
 		e.preventDefault();
@@ -35,12 +63,25 @@
 	}
 
 	function pollStatus(jobId: string) {
+		let consecutive404 = 0;
 		const interval = setInterval(async () => {
 			const headers = await authHeader();
 			if (!headers) return clearInterval(interval);
 			try {
 				const res = await fetch(`/api/documents/${jobId}`, { headers });
+				// 404 means the backend doesn't know about this job anymore
+				// (in-memory job store reset). After a few tries, mark as error.
+				if (res.status === 404) {
+					if (++consecutive404 >= 2) {
+						uploadedDocs = uploadedDocs.map((d) =>
+							d.jobId === jobId ? { ...d, status: 'error' } : d
+						);
+						clearInterval(interval);
+					}
+					return;
+				}
 				if (!res.ok) return;
+				consecutive404 = 0;
 				const data = await res.json();
 				uploadedDocs = uploadedDocs.map((d) => (d.jobId === jobId ? { ...d, status: data.status } : d));
 				if (data.status === 'ready' || data.status === 'error') clearInterval(interval);
