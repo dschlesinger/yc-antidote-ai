@@ -66,7 +66,17 @@
 				const formData = new FormData();
 				formData.append('file', file);
 				const res = await fetch('/api/documents/', { method: 'POST', body: formData, headers });
-				if (!res.ok) throw new Error(await res.text());
+				if (!res.ok) {
+					let detail = `Upload failed (${res.status})`;
+					try {
+						const body = await res.json();
+						if (body?.detail) detail = body.detail;
+					} catch {
+						const txt = await res.text();
+						if (txt) detail = txt;
+					}
+					throw new Error(`${file.name}: ${detail}`);
+				}
 				const doc = await res.json();
 				uploadedDocs = [
 					...uploadedDocs,
@@ -98,10 +108,16 @@
 	>
 		<div class="text-4xl mb-4">📄</div>
 		<p class="text-slate-300 font-medium mb-2">Drop files here or browse</p>
-		<p class="text-slate-500 text-sm mb-6">PDF, DOCX, XLSX, CSV, TXT and more</p>
+		<p class="text-slate-500 text-sm mb-6">PDF, DOCX, XLSX, PPTX, PNG, JPG, TIFF</p>
 		<label class="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-medium cursor-pointer transition-colors">
 			Browse files
-			<input type="file" multiple class="hidden" onchange={handleFileInput} />
+			<input
+				type="file"
+				multiple
+				class="hidden"
+				accept=".pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.tiff,.tif"
+				onchange={handleFileInput}
+			/>
 		</label>
 	</div>
 

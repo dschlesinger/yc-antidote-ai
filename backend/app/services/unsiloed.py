@@ -9,8 +9,17 @@ from app.config import settings
 from app.models.document import DocumentChunk
 
 
+class UnsupportedFileError(Exception):
+    """Raised when Unsiloed rejects the upload as an unsupported file type."""
+
+
 def submit_document(file_bytes: bytes, filename: str) -> str:
-    """Submit a document for async parsing. Returns the Unsiloed job_id."""
+    """Submit a document for async parsing. Returns the Unsiloed job_id.
+
+    Raises UnsupportedFileError on 4xx responses (bad input — caller should
+    return 400 to the client) and propagates other HTTP errors (treated as
+    upstream 502 by the caller).
+    """
     url = f"{settings.unsiloed_api_url}/parse"
     headers = {"accept": "application/json", "api-key": settings.unsiloed_api_key}
     files = {"file": (filename, file_bytes, "application/octet-stream")}
@@ -21,6 +30,13 @@ def submit_document(file_bytes: bytes, filename: str) -> str:
         "merge_tables": "true",
     }
     resp = requests.post(url, headers=headers, files=files, data=data, timeout=60)
+    if 400 <= resp.status_code < 500:
+        try:
+            detail = resp.json().get("message") or resp.text
+        except Exception:
+            detail = resp.text
+        msg = detail.strip() or f"Unsiloed rejected the upload ({resp.status_code})"
+        raise UnsupportedFileError(msg)
     resp.raise_for_status()
     return resp.json()["job_id"]
 

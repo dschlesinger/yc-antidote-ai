@@ -33,8 +33,10 @@ async def upload_document(
 
     try:
         job_id = unsiloed.submit_document(content, filename)
+    except unsiloed.UnsupportedFileError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Unsiloed submission failed: {e}") from e
+        raise HTTPException(status_code=502, detail=f"Unsiloed unavailable: {e}") from e
 
     _jobs[job_id] = {"status": "processing", "name": filename, "error": None}
     asyncio.create_task(_process_document(job_id, filename))
