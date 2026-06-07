@@ -39,5 +39,6 @@ Critical project context lives in `PROJECT.md`. It describes all aspects of the 
 - If using python, remember that it might be aliased `python` and not `python3`  
 - You must install and use the Python linter `ruff` and always check for lint errors as you work.
 - NEVER use "prompt-and-pray" tricks like checking for keywords or asking an agent to use some deterministic output format as opposed to using the LLM provider's tool/function call or structured output APIs. They should be well documented and if they're not in `PROJECT.md` the docs are available online.
+- Use `doctl` to interact with DigitalOcean. Provision resources as needed but don't spend egregiously (no reason that costs should exceed $20).
 
 **Important**: As the project grows, write/update `SETUP.md` such that if you were looking at this project for the first time you could easily set up its components and get it working. It is agent-facing documentation and should be concise. If you are reading it for the first time, note that much of the setup could already be done if the project was worked on in a previous session.  

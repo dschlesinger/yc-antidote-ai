@@ -100,3 +100,4 @@ Backend in /backend
 * Unsiloed
     * General [docuementation](https://www.unsiloed.ai/docs)
     * API Reference [documentation](https://docs.unsiloed.ai/api-reference/parser/parse-document)
+* [DigitalOcean CLI (`doctl`) docs](https://docs.digitalocean.com/reference/doctl/) and [repo](https://github.com/digitalocean/doctl)
